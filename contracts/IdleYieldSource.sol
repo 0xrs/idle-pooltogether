@@ -6,7 +6,7 @@ import { IYieldSource } from "./interfaces/IYieldSource.sol";
 import { IIdleToken } from "./interfaces/IIdleToken.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { ERC20 } from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
-
+import "hardhat/console.sol";
 /// @title An pooltogether yield source for idle finance
 /// @author 0xrs
 contract IdleYieldSource is IYieldSource {
@@ -31,6 +31,10 @@ contract IdleYieldSource is IYieldSource {
         return underlyingToken;
     }
 
+    function balanceOf(address addr) external view returns (uint256) {
+        return balances[addr];
+    }
+
     function balanceOfToken(address addr) external override returns (uint256) {
         if (balances[addr] == 0) {
             return 0;
@@ -43,8 +47,7 @@ contract IdleYieldSource is IYieldSource {
 
     function supplyTokenTo(uint256 amount, address to) external override {
         IERC20(underlyingToken).transferFrom(msg.sender, address(this), amount);
-        //uint256 beforeBalance = IERC20(idleToken).balanceOf(address(this));
-        uint256 mintedTokens = IIdleToken(idleToken).mintIdleToken(amount, true, referral);
+        uint256 mintedTokens = IIdleToken(idleToken).mintIdleToken(amount, false, referral);
         balances[to] = balances[to].add(mintedTokens);
     }
 
