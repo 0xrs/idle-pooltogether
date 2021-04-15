@@ -14,11 +14,6 @@ const DAI_ADDRESS = "0x6b175474e89094c44da98b954eedeac495271d0f";
 const WETH = '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2';
 const BINANCE = '0xf977814e90da44bfa03b6295a0616a897441acec';
 
-const sleep = (delay) => new Promise((resolve) => {
-    console.log("\tSleeping for " + delay + " secs...");
-    setTimeout(resolve, delay * 1000)
-});
-
 
 async function main() {
     const [deployerSign, ...signers] = (await ethers.getSigners());
@@ -52,7 +47,7 @@ async function main() {
         console.log(`Balance of Signer ${i} : ${bal}` );
         console.log(`Dai balance of Signer ${i} : ${daiBal}` );
     }
-    
+
     for (var i=0; i<5; i++) {
         await idleYieldSource.connect(signers[i]).redeemToken(ethers.utils.parseEther('1000'));
         var bal = ethers.utils.formatEther(await idleYieldSource.connect(signers[i]).balanceOf(signers[i].address));
@@ -60,7 +55,7 @@ async function main() {
         console.log(`Balance of Signer ${i} : ${bal}` );
         console.log(`Dai balance of Signer ${i} : ${daiBal}` );
     }
-    var idleGovBal = ethers.utils.formatEther(await idleGovContract.connect(deployerSign).balanceOf(idleYieldSource.address));
+    var idleGovBal = ethers.utils.formatEther(await idleGovContract.connect(deployerSign).balanceOf(signers[i].address));
     console.log(`IdleGovToken balance of pool: ${idleGovBal}`);
 }
 
