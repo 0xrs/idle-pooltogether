@@ -1,61 +1,77 @@
-// SPDX-License-Identifier: MIT
-pragma solidity 0.7.3;
+// SPDX-License-Identifier: GPL-3.0
 
-import { SafeMath } from "@openzeppelin/contracts/math/SafeMath.sol";
-import { IYieldSource } from "./interfaces/IYieldSource.sol";
-import { IIdleToken } from "./interfaces/IIdleToken.sol";
-import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import { ERC20 } from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
-import "hardhat/console.sol";
-/// @title An pooltogether yield source for idle finance
-/// @author 0xrs
-contract IdleYieldSource is IYieldSource {
+pragma solidity ^0.8.0;
 
-    using SafeMath for uint256;
-    address public idleToken;
-    address public underlyingToken;
-    address public referral;
+import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+import "@openzeppelin/contracts-upgradeable/utils/math/SafeMathUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/token/ERC20/utils/SafeERC20Upgradeable.sol";
+import "./interfaces/pooltogether/IYieldSource.sol";
+import "./interfaces/idle/IIdleToken.sol";
+import "./interfaces/idle/IIdleTokenHelper.sol";
 
+/// @title An pooltogether yield source for Idle token
+/// @author Sunny Radadiya
+contract IdleYieldSource is IYieldSource, Initializable {
+    using SafeMathUpgradeable for uint256;
+    using SafeERC20Upgradeable for IERC20Upgradeable;
     mapping(address => uint256) public balances;
-    uint256 private constant MAX_UINT256 = uint256(-1);
 
-    constructor(address _idleToken) {
+    address public idleToken;
+    address public underlyingAsset;
+    address public iIdleTokenHelper;
+    uint256 private constant ONE_HUNDREAD_18 = 100e18;
+
+    event IdleYieldSourceInitialized(address indexed idleToken);
+    
+    constructor(address _idleToken, address _iIdleTokenHelper) {
         idleToken = _idleToken;
-        underlyingToken = IIdleToken(idleToken).token();
-
-        //approve
-        IERC20(underlyingToken).approve(idleToken, MAX_UINT256);
+        underlyingAsset = IIdleToken(idleToken).token();
+        iIdleTokenHelper = _iIdleTokenHelper;
     }
 
+    function initialize(address _idleToken, address _iIdleTokenHelper) public initializer {
+        idleToken = _idleToken;
+        underlyingAsset = IIdleToken(idleToken).token();
+        iIdleTokenHelper = _iIdleTokenHelper;
+
+        emit IdleYieldSourceInitialized(idleToken);
+    }
+
+    /// @notice Returns the ERC20 asset token used for deposits.
+    /// @return The ERC20 asset token
     function depositToken() public view override returns (address) {
-        return underlyingToken;
+        return (underlyingAsset);
     }
 
-    function balanceOf(address addr) external view returns (uint256) {
-        return balances[addr];
+    /// @notice Returns the total balance (in asset tokens).  This includes the deposits and interest.
+    /// @return The underlying balance of asset tokens
+    function balanceOfToken(address addr) public view override returns (uint256) {
+        if (balances[addr] == 0) return 0;
+        uint256 redeemPrice = IIdleTokenHelper(iIdleTokenHelper).getRedeemPrice(idleToken);
+        uint256 totalBalanceOfToken = balances[addr].div(1e18).mul(redeemPrice.div(1e18)).mul(1e18);
+        return totalBalanceOfToken;
     }
 
-    function balanceOfToken(address addr) external override returns (uint256) {
-        if (balances[addr] == 0) {
-            return 0;
-        }
-        uint256 poolIdleBalance = IERC20(idleToken).balanceOf(address(this));
-        uint256 idlePrice = IIdleToken(idleToken).tokenPrice();
-        uint256 poolUnderlyingBalance = poolIdleBalance.mul(idlePrice).div(10**ERC20(underlyingToken).decimals());
-        return balances[addr].mul(poolUnderlyingBalance).div(poolIdleBalance);
-    }
-
-    function supplyTokenTo(uint256 amount, address to) external override {
-        IERC20(underlyingToken).transferFrom(msg.sender, address(this), amount);
-        uint256 mintedTokens = IIdleToken(idleToken).mintIdleToken(amount, false, referral);
+    /// @notice Allows assets to be supplied on other user's behalf using the `to` param.
+    /// @param amount The amount of `token()` to be supplied
+    /// @param to The user whose balance will receive the tokens
+    function supplyTokenTo(uint256 amount, address to) public override {
+        IERC20Upgradeable(underlyingAsset).safeApprove(idleToken, amount);
+        IERC20Upgradeable(underlyingAsset).safeTransferFrom(msg.sender, address(this), amount);
+        uint256 mintedTokens = IIdleToken(idleToken).mintIdleToken(amount, false, address(0));
         balances[to] = balances[to].add(mintedTokens);
     }
 
-    function redeemToken(uint256 amount) external override returns (uint256) {
-        uint256 idleTokensToRedeem = amount.mul(10**ERC20(underlyingToken).decimals()).div(IIdleToken(idleToken).tokenPrice());
-        uint256 redeemedUnderlying = IIdleToken(idleToken).redeemIdleToken(idleTokensToRedeem);
-        balances[msg.sender] = balances[msg.sender].sub(idleTokensToRedeem);
-        IERC20(underlyingToken).transfer(msg.sender, redeemedUnderlying);
-        return redeemedUnderlying;
+    /// @notice Redeems tokens from the yield source from the msg.sender, it burn yield bearing tokens and return token to the sender.
+    /// @param amount The amount of `token()` to withdraw.  Denominated in `token()` as above.
+    /// @return The actual amount of tokens that were redeemed.
+    function redeemToken(uint256 amount) public override returns (uint256) {
+        require(amount <= balances[msg.sender], "redeemToken: Not Enough Depposited");
+        uint256 redeemPrice = IIdleTokenHelper(iIdleTokenHelper).getRedeemPrice(idleToken);
+        uint256 totalAmountToRedeem = amount.mul(redeemPrice.div(1e18));
+        uint256 redeemedUnderlyingAsset = IIdleToken(idleToken).redeemIdleToken(totalAmountToRedeem);
+        balances[msg.sender] = balances[msg.sender].sub(totalAmountToRedeem);
+        IERC20Upgradeable(underlyingAsset).safeTransfer(msg.sender, redeemedUnderlyingAsset);
+        return redeemedUnderlyingAsset;
     }
 }
